@@ -1,7 +1,5 @@
-# Project no longer mantained.
-
-As Crypho does not use Cordova for a long time now, it has become clear that we cannot keep maintaining this project any longer, or give it the attention it deserves.
-A big thanks to all the contributors.
+# Android Q compatible
+This is a fork of https://github.com/crypho/cordova-plugin-secure-storage.git which is no longer maintained. I added compatibility for Android Q (API 29)
 
 # SecureStorage plugin for Apache Cordova
 
@@ -36,14 +34,9 @@ The plugin can be installed via the Cordova command line interface:
 - Run the command:
 
 ```sh
-cordova plugin add cordova-plugin-secure-storage
+cordova plugin add https://github.com/grausof/cordova-plugin-secure-storage.git
 ```
 
-or if you want to be running the development version,
-
-```sh
-cordova plugin add https://github.com/crypho/cordova-plugin-secure-storage.git
-```
 
 ## <a name="plugin_api"></a> Plugin API
 
