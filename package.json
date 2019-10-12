@@ -1,6 +1,6 @@
 {
   "name": "cordova-plugin-secure-storage",
-  "version": "3.0.2",
+  "version": "4.0.0",
   "description": "Secure storage plugin for iOS & Android",
   "author": "Yiorgis Gozadinos <ggozad@crypho.com>",
   "contributors": [
@@ -15,6 +15,10 @@
     {
       "name": "Ajay Ambre",
       "email": "ajayambre88@gmail.com"
+    },
+    {
+      "name": "Grauso Francesco",
+      "email": "grausof@gmail.com"
     }
   ],
   "cordova": {

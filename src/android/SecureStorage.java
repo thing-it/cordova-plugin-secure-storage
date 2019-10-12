@@ -17,20 +17,29 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import org.json.JSONArray;
 import javax.crypto.Cipher;
+import android.content.ActivityNotFoundException;
 
 public class SecureStorage extends CordovaPlugin {
-    private static final String TAG = "SecureStorage";
+    private static final String TAG = "SecureStorageFra";
 
     private static final boolean SUPPORTED = Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP;
+    private static final boolean MATCHES_ANDROID_API_28 = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P;
+    private static final String ACTION_UNLOCK = "com.android.credentials.UNLOCK";
+    private static final Integer DEFAULT_AUTHENTICATION_VALIDITY_TIME = 60 * 60 * 24; // Fallback to 24h. Workaround to avoid asking for credentials too "often"
 
     private static final String MSG_NOT_SUPPORTED = "API 21 (Android 5.0 Lollipop) is required. This device is running API " + Build.VERSION.SDK_INT;
     private static final String MSG_DEVICE_NOT_SECURE = "Device is not secure";
-
+    private static final String MSG_KEYS_FAILED = "Generate RSA Encryption Keys failed. ";
+    
     private Hashtable<String, SharedPreferencesHandler> SERVICE_STORAGE = new Hashtable<String, SharedPreferencesHandler>();
     private String INIT_SERVICE;
     private String INIT_PACKAGENAME;
     private volatile CallbackContext initContext, secureDeviceContext;
     private volatile boolean initContextRunning = false;
+
+
+    private volatile CallbackContext  generateKeysContext, unlockCredentialsContext;
+
 
     @Override
     public void onResume(boolean multitasking) {
@@ -98,7 +107,7 @@ public class SecureStorage extends CordovaPlugin {
 
             SharedPreferencesHandler PREFS = new SharedPreferencesHandler(alias, ctx);
             SERVICE_STORAGE.put(service, PREFS);
-
+            /*
             if (!isDeviceSecure()) {
                 Log.e(TAG, MSG_DEVICE_NOT_SECURE);
                 callbackContext.error(MSG_DEVICE_NOT_SECURE);
@@ -107,6 +116,53 @@ public class SecureStorage extends CordovaPlugin {
                 unlockCredentials();
             } else {
                 initSuccess(callbackContext);
+            }
+            return true;
+            */
+            if (!isDeviceSecure()) {
+                Log.i("INFO","Device is not secure");
+                Log.e(TAG, MSG_DEVICE_NOT_SECURE);
+                callbackContext.error(MSG_DEVICE_NOT_SECURE);
+            
+            } else {
+                if (MATCHES_ANDROID_API_28) {
+                    Log.i(TAG,"Device is beyond API28");
+                    try{
+                        //initSuccess(callbackContext);
+                        if (!RSA.isEntryAvailable(alias)) {
+                            // Encryption Keys aren't available, proceed to generate them
+                            Log.i(TAG,"Encryption Keys aren't available, proceed to generate them");
+                            Integer userAuthenticationValidityDuration = options.optInt("userAuthenticationValidityDuration", DEFAULT_AUTHENTICATION_VALIDITY_TIME);
+            
+                            generateKeysContext = callbackContext;
+                            generateEncryptionKeys(userAuthenticationValidityDuration);
+                        } else if (RSA.userAuthenticationRequired(alias)) {
+                            // User has to confirm authentication via device credentials.
+                            Log.i(TAG,"User has to confirm authentication via device credentials.");
+                            String title = options.optString("unlockCredentialsTitle", null);
+                            String description = options.optString("unlockCredentialsDescription", null);
+            
+                            unlockCredentialsContext = callbackContext;
+                            unlockCredentials(title, description);
+                        } else {
+                            initSuccess(callbackContext);
+                        }
+
+
+                    } catch(Exception e){
+                        Log.e(TAG, "INIT FAIL");
+                    }
+                    
+                } else {
+                    Log.i(TAG,"Device is below API28, hence calling unlockCreds");
+
+                    if (!RSA.isEntryAvailable(alias)) {
+                        initContext = callbackContext;
+                        unlockCredentials();
+                    } else {
+                        initSuccess(callbackContext);
+                    }
+                }
             }
             return true;
         }
@@ -213,11 +269,57 @@ public class SecureStorage extends CordovaPlugin {
     private void unlockCredentials() {
         cordova.getActivity().runOnUiThread(new Runnable() {
             public void run() {
-                Intent intent = new Intent("com.android.credentials.UNLOCK");
+                //Intent intent = new Intent("com.android.credentials.UNLOCK");
+                //startActivity(intent);
+                try {
+                    Intent intent = new Intent(ACTION_UNLOCK);
+                    startActivity(intent);
+                } catch (ActivityNotFoundException e) {
+                    Log.e(TAG, "No activity found :", e);
+                }
+            }
+        });
+    }
+    private void unlockCredentials(final String title, final String description) {
+        cordova.getActivity().runOnUiThread(new Runnable() {
+            public void run() {
+                KeyguardManager keyguardManager = (KeyguardManager) (getContext().getSystemService(Context.KEYGUARD_SERVICE));
+                Intent intent = keyguardManager.createConfirmDeviceCredentialIntent(title, description);
                 startActivity(intent);
             }
         });
     }
+
+    /**
+     * Generate Encryption Keys in the background.
+     *
+     * @param userAuthenticationValidityDuration User authentication validity duration in seconds
+     */
+    private void generateEncryptionKeys(final Integer userAuthenticationValidityDuration) {
+        if (generateKeysContext != null && !initContextRunning) {
+            cordova.getThreadPool().execute(new Runnable() {
+                public void run() {
+                    initContextRunning = true;
+                    try {
+                        String alias = service2alias(INIT_SERVICE);
+                        //Solves Issue #96. The RSA key may have been deleted by changing the lock type.
+                        getStorage(INIT_SERVICE).clear();
+                        //RSA.createKeyPair(getContext(), alias, userAuthenticationValidityDuration);
+                        RSA.createKeyPair(getContext(), alias);
+                        generateKeysContext.success();
+                    } catch (Exception e) {
+                        Log.e(TAG, MSG_KEYS_FAILED, e);
+                        generateKeysContext.error(MSG_KEYS_FAILED + e.getMessage());
+                    } finally {
+                        generateKeysContext = null;
+                        initContextRunning = false;
+                    }
+                }
+            });
+        }
+    }
+
+
 
     private Context getContext() {
         return cordova.getActivity().getApplicationContext();
@@ -239,5 +341,6 @@ public class SecureStorage extends CordovaPlugin {
     private void startActivity(Intent intent) {
         cordova.getActivity().startActivity(intent);
     }
+
 
 }

@@ -1,22 +1,35 @@
 package com.crypho.plugins;
-
+ 
+import android.annotation.TargetApi;
 import android.content.Context;
-import android.util.Log;
-
+import android.os.Build;
 import android.security.KeyPairGeneratorSpec;
-
-import java.math.BigInteger;
-import java.security.Key;
-import java.security.KeyPairGenerator;
-import java.security.KeyStore;
-import java.util.Calendar;
-
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyInfo;
+import android.security.keystore.KeyProperties;
+import android.security.keystore.UserNotAuthenticatedException;
+import android.util.Log;
+ 
 import javax.crypto.Cipher;
 import javax.security.auth.x500.X500Principal;
+ 
+import java.math.BigInteger;
+import java.security.Key;
+import java.security.KeyFactory;
+import java.security.KeyPairGenerator;
+import java.security.KeyStore;
+import java.security.spec.AlgorithmParameterSpec;
+import java.security.spec.RSAKeyGenParameterSpec;
+import java.util.Calendar;
 
 public class RSA {
     private static final String KEYSTORE_PROVIDER = "AndroidKeyStore";
     private static final Cipher CIPHER = getCipher();
+    private static final Integer CERT_VALID_YEARS = 100;
+    private static final Boolean IS_API_23_AVAILABLE = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M;
+    private static final String TAG = "SecureStorage";
+
+
 
     public static byte[] encrypt(byte[] buf, String alias) throws Exception {
         return runCipher(Cipher.ENCRYPT_MODE, alias, buf);
@@ -46,10 +59,31 @@ public class RSA {
         kpGenerator.generateKeyPair();
     }
 
+
     public static boolean isEntryAvailable(String alias) {
         try {
             return loadKey(Cipher.ENCRYPT_MODE, alias) != null;
         } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Check if we need to prompt for User's Credentials
+     *
+     * @param alias
+     * @return
+     */
+    public static boolean userAuthenticationRequired(String alias) {
+        try {
+            // Do a quick encrypt/decrypt test
+            byte[] encrypted = encrypt(alias.getBytes(), alias);
+            decrypt(encrypted, alias);
+            return false;
+        } catch (UserNotAuthenticatedException noAuthEx) {
+            return true;
+        } catch (Exception e) {
+            // Other
             return false;
         }
     }
