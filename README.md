@@ -1,10 +1,6 @@
 # Android Q compatible
 This is a fork of https://github.com/crypho/cordova-plugin-secure-storage.git which is no longer maintained. I added compatibility for Android Q (API 29)
 
-# SecureStorage plugin for Apache Cordova
-
-[![NPM](https://nodei.co/npm/cordova-plugin-secure-storage.png?downloads=true&downloadRank=true&stars=true)](https://nodei.co/npm/cordova-plugin-secure-storage/)
-
 ## Introduction
 
 This plugin is for use with [Apache Cordova](http://cordova.apache.org/) and allows your application to securely store secrets
