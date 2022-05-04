@@ -166,6 +166,15 @@ public class SecureStorage extends CordovaPlugin {
             }
             return true;
         }
+        if ("isDevicePasscodeSet".equals(action)) {
+            final boolean isSecure = isDeviceSecure();
+            cordova.getThreadPool().execute(new Runnable() {
+                public void run() {
+                    callbackContext.success(isSecure ? 1 : 0);
+                }
+            });
+            return true;
+        }
         if ("set".equals(action)) {
             final String service = args.getString(0);
             final String key = args.getString(1);
