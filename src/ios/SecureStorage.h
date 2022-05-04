@@ -8,6 +8,7 @@
 - (void)remove:(CDVInvokedUrlCommand*)command;
 - (void)keys:(CDVInvokedUrlCommand*)command;
 - (void)clear:(CDVInvokedUrlCommand*)command;
+- (void)isDevicePasscodeSet:(CDVInvokedUrlCommand*)command;
 
 @property (nonatomic, copy) id keychainAccesssibilityMapping;
 
