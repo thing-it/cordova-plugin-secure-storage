@@ -20,26 +20,14 @@ public class SharedPreferencesHandler {
         editor.commit();
     }
 
-    String fetch (String key){
-        return prefs.getString("_SS_" + key, null);
+    Map<String, ?> fetchAll (){
+        return prefs.getAll();
     }
 
     void remove (String key){
         SharedPreferences.Editor editor = prefs.edit();
         editor.remove("_SS_" + key);
         editor.commit();
-    }
-
-    Set keys (){
-        Set res = new HashSet<String>();
-    	Iterator<String> iter = prefs.getAll().keySet().iterator();
-        while (iter.hasNext()) {
-            String key = iter.next();
-            if (key.startsWith("_SS_")  && !key.startsWith("_SS_MIGRATED_")) {
-                res.add(key.replaceFirst("^_SS_", ""));
-            }
-        }
-        return res;
     }
 
     void clear (){

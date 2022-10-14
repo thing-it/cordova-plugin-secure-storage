@@ -68,12 +68,9 @@ SecureStorage.prototype = {
         }
     },
 
-    get: function (success, error, key) {
+    getAll: function (success, error) {
         try {
-            if (!_isString(key)) {
-                throw new Error('Key must be a string');
-            }
-            _executeNativeMethod(success, error, 'get', [this.service, key]);
+            _executeNativeMethod(success, error, 'getAll', [this.service]);
         } catch (e) {
             error(e);
         }
@@ -96,14 +93,6 @@ SecureStorage.prototype = {
                 throw new Error('Key must be a string');
             }
             _executeNativeMethod(success, error, 'remove', [this.service, key]);
-        } catch (e) {
-            error(e);
-        }
-    },
-
-    keys: function (success, error) {
-        try {
-            _executeNativeMethod(success, error, 'keys', [this.service]);
         } catch (e) {
             error(e);
         }

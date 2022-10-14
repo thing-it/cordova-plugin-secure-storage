@@ -30,7 +30,7 @@ public class SecureStorage extends CordovaPlugin {
     private static final String MSG_NOT_SUPPORTED = "API 21 (Android 5.0 Lollipop) is required. This device is running API " + Build.VERSION.SDK_INT;
     private static final String MSG_DEVICE_NOT_SECURE = "Device is not secure";
     private static final String MSG_KEYS_FAILED = "Generate RSA Encryption Keys failed. ";
-    
+
     private Hashtable<String, SharedPreferencesHandler> SERVICE_STORAGE = new Hashtable<String, SharedPreferencesHandler>();
     private String INIT_SERVICE;
     private String INIT_PACKAGENAME;
@@ -40,6 +40,11 @@ public class SecureStorage extends CordovaPlugin {
 
     private volatile CallbackContext  generateKeysContext, unlockCredentialsContext;
 
+    @Override
+    protected void pluginInitialize() {
+        mReady = false;
+        initializeLocationManager();
+    }
 
     @Override
     public void onResume(boolean multitasking) {
@@ -89,7 +94,7 @@ public class SecureStorage extends CordovaPlugin {
             String packageName = options.optString("packageName", getContext().getPackageName());
 
             Context ctx = null;
-            
+
             // Solves #151. By default, we use our own ApplicationContext
             // If packageName is provided, we try to get the Context of another Application with that packageName
             try {
@@ -123,7 +128,7 @@ public class SecureStorage extends CordovaPlugin {
                 Log.i("INFO","Device is not secure");
                 Log.e(TAG, MSG_DEVICE_NOT_SECURE);
                 callbackContext.error(MSG_DEVICE_NOT_SECURE);
-            
+
             } else {
                 if (MATCHES_ANDROID_API_28) {
                     Log.i(TAG,"Device is beyond API28");
@@ -133,7 +138,7 @@ public class SecureStorage extends CordovaPlugin {
                             // Encryption Keys aren't available, proceed to generate them
                             Log.i(TAG,"Encryption Keys aren't available, proceed to generate them");
                             Integer userAuthenticationValidityDuration = options.optInt("userAuthenticationValidityDuration", DEFAULT_AUTHENTICATION_VALIDITY_TIME);
-            
+
                             generateKeysContext = callbackContext;
                             generateEncryptionKeys(userAuthenticationValidityDuration);
                         } else if (RSA.userAuthenticationRequired(alias)) {
@@ -141,7 +146,7 @@ public class SecureStorage extends CordovaPlugin {
                             Log.i(TAG,"User has to confirm authentication via device credentials.");
                             String title = options.optString("unlockCredentialsTitle", null);
                             String description = options.optString("unlockCredentialsDescription", null);
-            
+
                             unlockCredentialsContext = callbackContext;
                             unlockCredentials(title, description);
                         } else {
@@ -152,7 +157,7 @@ public class SecureStorage extends CordovaPlugin {
                     } catch(Exception e){
                         Log.e(TAG, "INIT FAIL");
                     }
-                    
+
                 } else {
                     Log.i(TAG,"Device is below API28, hence calling unlockCreds");
 
@@ -197,31 +202,31 @@ public class SecureStorage extends CordovaPlugin {
             });
             return true;
         }
-        if ("get".equals(action)) {
+        if ("getAll".equals(action)) {
             final String service = args.getString(0);
-            final String key = args.getString(1);
-            String value = getStorage(service).fetch(key);
-            if (value != null) {
-                JSONObject json = new JSONObject(value);
-                final byte[] encKey = Base64.decode(json.getString("key"), Base64.DEFAULT);
-                JSONObject data = json.getJSONObject("value");
-                final byte[] ct = Base64.decode(data.getString("ct"), Base64.DEFAULT);
-                final byte[] iv = Base64.decode(data.getString("iv"), Base64.DEFAULT);
-                final byte[] adata = Base64.decode(data.getString("adata"), Base64.DEFAULT);
-                cordova.getThreadPool().execute(new Runnable() {
-                    public void run() {
-                        try {
-                            byte[] decryptedKey = RSA.decrypt(encKey, service2alias(service));
-                            String decrypted = new String(AES.decrypt(ct, decryptedKey, iv, adata));
-                            callbackContext.success(decrypted);
-                        } catch (Exception e) {
-                            Log.e(TAG, "Decrypt failed :", e);
-                            callbackContext.error(e.getMessage());
-                        }
+            Map<string, ?> store = getStorage(service).fetchAll();
+            JSONObject storedJson = new JSONObject(store);
+            if (storedJson != null) {
+                for (String key : jsonObj.keySet()) {
+                    Object value = jsonObj.get(key);
+                    JSONObject json = new JSONObject(value);
+                    final byte[] encKey = Base64.decode(json.getString("key"), Base64.DEFAULT);
+                    JSONObject data = json.getJSONObject("value");
+                    final byte[] ct = Base64.decode(data.getString("ct"), Base64.DEFAULT);
+                    final byte[] iv = Base64.decode(data.getString("iv"), Base64.DEFAULT);
+                    final byte[] adata = Base64.decode(data.getString("adata"), Base64.DEFAULT);
+                    try {
+                        byte[] decryptedKey = RSA.decrypt(encKey, service2alias(service));
+                        String decrypted = new String(AES.decrypt(ct, decryptedKey, iv, adata));
+                        jsonObj.put(decrypted);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Decrypt failed :", e);
+                        callbackContext.error(e.getMessage());
                     }
-                });
+                }
+                callbackContext.success(storedJson);
             } else {
-                callbackContext.error("Key [" + key + "] not found.");
+                callbackContext.error("Store not found.");
             }
             return true;
         }
@@ -327,8 +332,6 @@ public class SecureStorage extends CordovaPlugin {
             });
         }
     }
-
-
 
     private Context getContext() {
         return cordova.getActivity().getApplicationContext();
