@@ -4,6 +4,7 @@ import java.lang.reflect.Method;
 import java.util.Hashtable;
 import java.util.Map;
 import java.util.Iterator;
+import java.util.HashMap;
 
 import android.util.Log;
 import android.util.Base64;
@@ -22,239 +23,154 @@ import javax.crypto.Cipher;
 import android.content.ActivityNotFoundException;
 
 public class SecureStorage extends CordovaPlugin {
-    private static final String TAG = "SecureStorageFra";
-
+    private static final String TAG = "SecureStorage";
+    private final static String SERVICE_NAME = "thing-it Mobile";
     private static final boolean SUPPORTED = Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP;
     private static final boolean MATCHES_ANDROID_API_28 = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P;
-    private static final String ACTION_UNLOCK = "com.android.credentials.UNLOCK";
-    private static final Integer DEFAULT_AUTHENTICATION_VALIDITY_TIME = 60 * 60 * 24; // Fallback to 24h. Workaround to avoid asking for credentials too "often"
 
-    private static final String MSG_NOT_SUPPORTED = "API 21 (Android 5.0 Lollipop) is required. This device is running API " + Build.VERSION.SDK_INT;
-    private static final String MSG_DEVICE_NOT_SECURE = "Device is not secure";
-    private static final String MSG_KEYS_FAILED = "Generate RSA Encryption Keys failed. ";
+    private Context context;
+    private String packageName;
+    private String serviceAlias;
 
-    private Hashtable<String, SharedPreferencesHandler> SERVICE_STORAGE = new Hashtable<String, SharedPreferencesHandler>();
-    private String INIT_SERVICE;
-    private String INIT_PACKAGENAME;
-    private volatile CallbackContext initContext, secureDeviceContext;
-    private volatile boolean initContextRunning = false;
+    private SharedPreferencesHandler storage;
 
+    private Map<String, CallbackContext> subscribers = new HashMap<String, CallbackContext>();
 
-    private volatile CallbackContext  generateKeysContext, unlockCredentialsContext;
+    private boolean initialized = false;
+    private String initializationError;
 
     @Override
-    public void onResume(boolean multitasking) {
-        if (secureDeviceContext != null) {
-            if (isDeviceSecure()) {
-                secureDeviceContext.success();
-            } else {
-                secureDeviceContext.error(MSG_DEVICE_NOT_SECURE);
+    protected void pluginInitialize() {
+        try {
+            if (!SUPPORTED) {
+                throw new Error("API 21 (Android 5.0 Lollipop) is required. This device is running API " + Build.VERSION.SDK_INT);
             }
-            secureDeviceContext = null;
-        }
 
-        if (initContext != null && !initContextRunning) {
-            cordova.getThreadPool().execute(new Runnable() {
-                public void run() {
-                    initContextRunning = true;
-                    try {
-                        String alias = service2alias(INIT_SERVICE);
-                        if (!RSA.isEntryAvailable(alias)) {
-                            //Solves Issue #96. The RSA key may have been deleted by changing the lock type.
-                            getStorage(INIT_SERVICE).clear();
-                            RSA.createKeyPair(getContext(), alias);
-                        }
-                        initSuccess(initContext);
-                    } catch (Exception e) {
-                        Log.e(TAG, "Init failed :", e);
-                        initContext.error(e.getMessage());
-                    } finally {
-                        initContext = null;
-                        initContextRunning = false;
-                    }
-                }
-            });
+            context = cordova.getActivity().getApplicationContext();
+            packageName = context.getPackageName();
+
+            serviceAlias = packageName + "." + SERVICE_NAME;
+
+            SharedPreferencesHandler preferences = new SharedPreferencesHandler(serviceAlias, context);
+            storage = preferences;
+
+            if (!isDeviceSecure()) {
+                throw new Error("Device is not secure");
+            }
+
+            unlockCredentials();
+
+            initialized = true;
+        } catch (Exception e) {
+            Log.e(TAG, "Init failed :", e);
+            initializationError = e.getMessage();
         }
     }
 
     @Override
     public boolean execute(String action, CordovaArgs args, final CallbackContext callbackContext) throws JSONException {
-        if(!SUPPORTED){
-            Log.w(TAG, MSG_NOT_SUPPORTED);
-            callbackContext.error(MSG_NOT_SUPPORTED);
-            return false;
-        }
-        if ("init".equals(action)) {
-            String service = args.getString(0);
-            JSONObject options = args.getJSONObject(1);
-            String packageName = options.optString("packageName", getContext().getPackageName());
-
-            Context ctx = null;
-
-            // Solves #151. By default, we use our own ApplicationContext
-            // If packageName is provided, we try to get the Context of another Application with that packageName
-            try {
-                ctx = getPackageContext(packageName);
-            } catch (Exception e) {
-                // This will fail if the application with given packageName is not installed
-                // OR if we do not have required permissions and cause a security violation
-                Log.e(TAG, "Init failed :", e);
-                callbackContext.error(e.getMessage());
+        try {
+            if ("isDevicePasscodeSet".equals(action)) {
+                final boolean isSecure = isDeviceSecure();
+                callbackContext.success(isSecure);
+                return true;
             }
+            if ("set".equals(action)) {
+                final String key = args.getString(0);
+                final String value = args.getString(1);
 
-            INIT_PACKAGENAME = ctx.getPackageName();
-            String alias = service2alias(service);
-            INIT_SERVICE = service;
-
-            SharedPreferencesHandler PREFS = new SharedPreferencesHandler(alias, ctx);
-            SERVICE_STORAGE.put(service, PREFS);
-            /*
-            if (!isDeviceSecure()) {
-                Log.e(TAG, MSG_DEVICE_NOT_SECURE);
-                callbackContext.error(MSG_DEVICE_NOT_SECURE);
-            } else if (!RSA.isEntryAvailable(alias)) {
-                initContext = callbackContext;
-                unlockCredentials();
-            } else {
-                initSuccess(callbackContext);
+                JSONObject result = AES.encrypt(value.getBytes(), SERVICE_NAME.getBytes());
+                byte[] aes_key = Base64.decode(result.getString("key"), Base64.DEFAULT);
+                byte[] aes_key_enc = RSA.encrypt(aes_key, serviceAlias);
+                result.put("key", Base64.encodeToString(aes_key_enc, Base64.DEFAULT));
+                storage.store(key, result.toString());
+                callbackContext.success();
+                return true;
             }
-            return true;
-            */
-            if (!isDeviceSecure()) {
-                Log.i("INFO","Device is not secure");
-                Log.e(TAG, MSG_DEVICE_NOT_SECURE);
-                callbackContext.error(MSG_DEVICE_NOT_SECURE);
+            if ("getAll".equals(action)) {
+                Map<String, String> store = storage.fetchAll();
+                JSONObject storedJson = new JSONObject(store);
 
-            } else {
-                if (MATCHES_ANDROID_API_28) {
-                    Log.i(TAG,"Device is beyond API28");
-                    try{
-                        //initSuccess(callbackContext);
-                        if (!RSA.isEntryAvailable(alias)) {
-                            // Encryption Keys aren't available, proceed to generate them
-                            Log.i(TAG,"Encryption Keys aren't available, proceed to generate them");
-                            Integer userAuthenticationValidityDuration = options.optInt("userAuthenticationValidityDuration", DEFAULT_AUTHENTICATION_VALIDITY_TIME);
-
-                            generateKeysContext = callbackContext;
-                            generateEncryptionKeys(userAuthenticationValidityDuration);
-                        } else if (RSA.userAuthenticationRequired(alias)) {
-                            // User has to confirm authentication via device credentials.
-                            Log.i(TAG,"User has to confirm authentication via device credentials.");
-                            String title = options.optString("unlockCredentialsTitle", null);
-                            String description = options.optString("unlockCredentialsDescription", null);
-
-                            unlockCredentialsContext = callbackContext;
-                            unlockCredentials(title, description);
-                        } else {
-                            initSuccess(callbackContext);
-                        }
-
-
-                    } catch(Exception e){
-                        Log.e(TAG, "INIT FAIL");
-                    }
-
-                } else {
-                    Log.i(TAG,"Device is below API28, hence calling unlockCreds");
-
-                    if (!RSA.isEntryAvailable(alias)) {
-                        initContext = callbackContext;
-                        unlockCredentials();
-                    } else {
-                        initSuccess(callbackContext);
-                    }
-                }
-            }
-            return true;
-        }
-        if ("isDevicePasscodeSet".equals(action)) {
-            final boolean isSecure = isDeviceSecure();
-            cordova.getThreadPool().execute(new Runnable() {
-                public void run() {
-                    callbackContext.success(isSecure ? 1 : 0);
-                }
-            });
-            return true;
-        }
-        if ("set".equals(action)) {
-            final String service = args.getString(0);
-            final String key = args.getString(1);
-            final String value = args.getString(2);
-            final String adata = service;
-            cordova.getThreadPool().execute(new Runnable() {
-                public void run() {
-                    try {
-                        JSONObject result = AES.encrypt(value.getBytes(), adata.getBytes());
-                        byte[] aes_key = Base64.decode(result.getString("key"), Base64.DEFAULT);
-                        byte[] aes_key_enc = RSA.encrypt(aes_key, service2alias(service));
-                        result.put("key", Base64.encodeToString(aes_key_enc, Base64.DEFAULT));
-                        getStorage(service).store(key, result.toString());
-                        callbackContext.success(key);
-                    } catch (Exception e) {
-                        Log.e(TAG, "Encrypt failed :", e);
-                        callbackContext.error(e.getMessage());
-                    }
-                }
-            });
-            return true;
-        }
-        if ("getAll".equals(action)) {
-            final String service = args.getString(0);
-            Map<String, String> store = getStorage(service).fetchAll();
-            JSONObject storedJson = new JSONObject(store);
-            if (storedJson != null) {
                 Iterator<String> keys = storedJson.keys();
-
-                while(keys.hasNext()) {
+                while (keys.hasNext()) {
                     String key = keys.next();
                     String value = storedJson.getString(key);
-                    if (value != null) {
-                        JSONObject json = new JSONObject(value);
-                        final byte[] encKey = Base64.decode(json.getString("key"), Base64.DEFAULT);
-                        JSONObject data = json.getJSONObject("value");
-                        final byte[] ct = Base64.decode(data.getString("ct"), Base64.DEFAULT);
-                        final byte[] iv = Base64.decode(data.getString("iv"), Base64.DEFAULT);
-                        final byte[] adata = Base64.decode(data.getString("adata"), Base64.DEFAULT);
-                        try {
-                            byte[] decryptedKey = RSA.decrypt(encKey, service2alias(service));
-                            String decrypted = new String(AES.decrypt(ct, decryptedKey, iv, adata));
-                            storedJson.put(key, decrypted.toString());
-                        } catch (Exception e) {
-                            Log.e(TAG, "Decrypt failed :", e);
-                            callbackContext.error(e.getMessage());
-                        }
-                    }
+                    if (value == null) continue;
+
+                    JSONObject json = new JSONObject(value);
+                    final byte[] encKey = Base64.decode(json.getString("key"), Base64.DEFAULT);
+                    JSONObject data = json.getJSONObject("value");
+                    final byte[] ct = Base64.decode(data.getString("ct"), Base64.DEFAULT);
+                    final byte[] iv = Base64.decode(data.getString("iv"), Base64.DEFAULT);
+                    final byte[] adata = Base64.decode(data.getString("adata"), Base64.DEFAULT);
+                    byte[] decryptedKey = RSA.decrypt(encKey, serviceAlias);
+                    String decrypted = new String(AES.decrypt(ct, decryptedKey, iv, adata));
+                    storedJson.put(key, decrypted);
                 }
 
                 callbackContext.success(storedJson.toString());
-            } else {
-                callbackContext.error("Store not found.");
+
+                return true;
             }
+            if ("remove".equals(action)) {
+                String key = args.getString(0);
+                storage.remove(key);
+                callbackContext.success();
+                return true;
+            }
+            if ("clear".equals(action)) {
+                storage.clear();
+                callbackContext.success();
+                return true;
+            }
+            if ("subscribe".equals(action)) {
+                subscribeForEvent(args, callbackContext);
+                return true;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error during command execution:", e);
+            callbackContext.error(e.getMessage());
             return true;
         }
-        if ("secureDevice".equals(action)) {
-            secureDeviceContext = callbackContext;
-            unlockCredentials();
-            return true;
-        }
-        if ("remove".equals(action)) {
-            String service = args.getString(0);
-            String key = args.getString(1);
-            getStorage(service).remove(key);
-            callbackContext.success(key);
-            return true;
-        }
-        if ("clear".equals(action)) {
-            String service = args.getString(0);
-            getStorage(service).clear();
-            callbackContext.success();
-            return true;
-        }
+
         return false;
     }
 
+    private void subscribeForEvent(CordovaArgs arguments, CallbackContext callbackContext) {
+        final String eventName = arguments.get(0);
+        subscribers.put(eventName, callbackContext);
+
+        switch (eventName) {
+            case "initialized":
+                publishEvent(eventName);
+        }
+    }
+
+    private void publishEvent(String eventName) {
+        CallbackContext subscriber = subscribers.get(eventName);
+        if (subscriber == null) return;
+
+        switch (eventName) {
+            case "initialized":
+                if (initialized) {
+                    subscriber.success();
+                    return;
+                }
+                if (initializationError != null) {
+                    subscriber.error(initializationError);
+                }
+                break;
+            default:
+                subscriber.success();
+        }
+    }
+
+    public String getInitializationError() {
+        return initializationError;
+    }
+
     private boolean isDeviceSecure() {
-        KeyguardManager keyguardManager = (KeyguardManager)(getContext().getSystemService(Context.KEYGUARD_SERVICE));
+        KeyguardManager keyguardManager = (KeyguardManager)(context.getSystemService(Context.KEYGUARD_SERVICE));
         try {
             Method isSecure = null;
             isSecure = keyguardManager.getClass().getMethod("isDeviceSecure");
@@ -264,92 +180,32 @@ public class SecureStorage extends CordovaPlugin {
         }
     }
 
-    private String service2alias(String service) {
-        String res = INIT_PACKAGENAME + "." + service;
-        return  res;
-    }
-
-    private SharedPreferencesHandler getStorage(String service) {
-        return SERVICE_STORAGE.get(service);
-    }
-
-    private void initSuccess(CallbackContext context) {
-        context.success();
-    }
-
     private void unlockCredentials() {
-        cordova.getActivity().runOnUiThread(new Runnable() {
-            public void run() {
-                //Intent intent = new Intent("com.android.credentials.UNLOCK");
-                //startActivity(intent);
-                try {
-                    Intent intent = new Intent(ACTION_UNLOCK);
-                    startActivity(intent);
-                } catch (ActivityNotFoundException e) {
-                    Log.e(TAG, "No activity found :", e);
-                }
-            }
-        });
-    }
-    private void unlockCredentials(final String title, final String description) {
-        cordova.getActivity().runOnUiThread(new Runnable() {
-            public void run() {
-                KeyguardManager keyguardManager = (KeyguardManager) (getContext().getSystemService(Context.KEYGUARD_SERVICE));
-                Intent intent = keyguardManager.createConfirmDeviceCredentialIntent(title, description);
-                startActivity(intent);
-            }
-        });
-    }
+        if (!MATCHES_ANDROID_API_28) {
+            if (RSA.isEntryAvailable(serviceAlias)) return;
 
-    /**
-     * Generate Encryption Keys in the background.
-     *
-     * @param userAuthenticationValidityDuration User authentication validity duration in seconds
-     */
-    private void generateEncryptionKeys(final Integer userAuthenticationValidityDuration) {
-        if (generateKeysContext != null && !initContextRunning) {
-            cordova.getThreadPool().execute(new Runnable() {
-                public void run() {
-                    initContextRunning = true;
-                    try {
-                        String alias = service2alias(INIT_SERVICE);
-                        //Solves Issue #96. The RSA key may have been deleted by changing the lock type.
-                        getStorage(INIT_SERVICE).clear();
-                        //RSA.createKeyPair(getContext(), alias, userAuthenticationValidityDuration);
-                        RSA.createKeyPair(getContext(), alias);
-                        generateKeysContext.success();
-                    } catch (Exception e) {
-                        Log.e(TAG, MSG_KEYS_FAILED, e);
-                        generateKeysContext.error(MSG_KEYS_FAILED + e.getMessage());
-                    } finally {
-                        generateKeysContext = null;
-                        initContextRunning = false;
-                    }
-                }
-            });
+            Intent intent = new Intent("com.android.credentials.UNLOCK");
+            startActivity(intent);
+            return;
+        }
+
+        if (!RSA.isEntryAvailable(serviceAlias)) {
+            generateEncryptionKeys();
+            return;
+        }
+        if (RSA.userAuthenticationRequired(serviceAlias)) {
+            KeyguardManager keyguardManager = (KeyguardManager) (context.getSystemService(Context.KEYGUARD_SERVICE));
+            Intent intent = keyguardManager.createConfirmDeviceCredentialIntent(null, null);
+            startActivity(intent);
         }
     }
 
-    private Context getContext() {
-        return cordova.getActivity().getApplicationContext();
-    }
-
-    private Context getPackageContext(String packageName) throws Exception {
-        Context pkgContext = null;
-
-        Context context = getContext();
-        if (context.getPackageName().equals(packageName)) {
-            pkgContext = context;
-        } else {
-            pkgContext = context.createPackageContext(packageName, 0);
-        }
-
-        return pkgContext;
+    private void generateEncryptionKeys() {
+        storage.clear();
+        RSA.createKeyPair(context, serviceAlias);
     }
 
     private void startActivity(Intent intent) {
         cordova.getActivity().startActivity(intent);
     }
-
-
 }
