@@ -2,6 +2,8 @@ package com.crypho.plugins;
 
 import java.lang.reflect.Method;
 import java.util.Hashtable;
+import java.util.Map;
+import java.util.Iterator;
 
 import android.util.Log;
 import android.util.Base64;
@@ -39,12 +41,6 @@ public class SecureStorage extends CordovaPlugin {
 
 
     private volatile CallbackContext  generateKeysContext, unlockCredentialsContext;
-
-    @Override
-    protected void pluginInitialize() {
-        mReady = false;
-        initializeLocationManager();
-    }
 
     @Override
     public void onResume(boolean multitasking) {
@@ -204,27 +200,33 @@ public class SecureStorage extends CordovaPlugin {
         }
         if ("getAll".equals(action)) {
             final String service = args.getString(0);
-            Map<string, ?> store = getStorage(service).fetchAll();
+            Map<String, String> store = getStorage(service).fetchAll();
             JSONObject storedJson = new JSONObject(store);
             if (storedJson != null) {
-                for (String key : jsonObj.keySet()) {
-                    Object value = jsonObj.get(key);
-                    JSONObject json = new JSONObject(value);
-                    final byte[] encKey = Base64.decode(json.getString("key"), Base64.DEFAULT);
-                    JSONObject data = json.getJSONObject("value");
-                    final byte[] ct = Base64.decode(data.getString("ct"), Base64.DEFAULT);
-                    final byte[] iv = Base64.decode(data.getString("iv"), Base64.DEFAULT);
-                    final byte[] adata = Base64.decode(data.getString("adata"), Base64.DEFAULT);
-                    try {
-                        byte[] decryptedKey = RSA.decrypt(encKey, service2alias(service));
-                        String decrypted = new String(AES.decrypt(ct, decryptedKey, iv, adata));
-                        jsonObj.put(decrypted.toString());
-                    } catch (Exception e) {
-                        Log.e(TAG, "Decrypt failed :", e);
-                        callbackContext.error(e.getMessage());
+                Iterator<String> keys = storedJson.keys();
+
+                while(keys.hasNext()) {
+                    String key = keys.next();
+                    String value = storedJson.getString(key);
+                    if (value != null) {
+                        JSONObject json = new JSONObject(value);
+                        final byte[] encKey = Base64.decode(json.getString("key"), Base64.DEFAULT);
+                        JSONObject data = json.getJSONObject("value");
+                        final byte[] ct = Base64.decode(data.getString("ct"), Base64.DEFAULT);
+                        final byte[] iv = Base64.decode(data.getString("iv"), Base64.DEFAULT);
+                        final byte[] adata = Base64.decode(data.getString("adata"), Base64.DEFAULT);
+                        try {
+                            byte[] decryptedKey = RSA.decrypt(encKey, service2alias(service));
+                            String decrypted = new String(AES.decrypt(ct, decryptedKey, iv, adata));
+                            storedJson.put(key, decrypted.toString());
+                        } catch (Exception e) {
+                            Log.e(TAG, "Decrypt failed :", e);
+                            callbackContext.error(e.getMessage());
+                        }
                     }
                 }
-                callbackContext.success(storedJson);
+
+                callbackContext.success(storedJson.toString());
             } else {
                 callbackContext.error("Store not found.");
             }
@@ -240,11 +242,6 @@ public class SecureStorage extends CordovaPlugin {
             String key = args.getString(1);
             getStorage(service).remove(key);
             callbackContext.success(key);
-            return true;
-        }
-        if ("keys".equals(action)) {
-            String service = args.getString(0);
-            callbackContext.success(new JSONArray(getStorage(service).keys()));
             return true;
         }
         if ("clear".equals(action)) {
