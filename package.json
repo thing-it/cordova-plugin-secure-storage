@@ -48,7 +48,9 @@
     "url": "git+https://github.com/thing-it/cordova-plugin-secure-storage.git"
   },
   "scripts": {
-    "eslint": "./node_modules/.bin/eslint www/securestorage.js tests/tests.js"
+    "eslint": "./node_modules/.bin/eslint www/securestorage.js tests/tests.js",
+    "version": "node ./bump-version.js && git add -A plugin.xml",
+    "postversion": "git push && git push --tags && npm publish --verbose"
   },
   "devDependencies": {
     "cordova-plugin-test-framework": ">=1.0.0",
