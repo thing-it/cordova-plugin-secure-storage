@@ -16,7 +16,7 @@
     <keywords>keychain, encryption, security</keywords>
 
     <js-module src="www/securestorage.js" name="SecureStorage">
-        <clobbers target="SecureStorage" />
+        <clobbers target="cordova.plugins.SecureStorage"/>
     </js-module>
 
     <engines>
@@ -46,7 +46,7 @@
     <platform name="android">
         <config-file target="res/xml/config.xml" parent="/*">
             <feature name="SecureStorage" >
-                <param name="android-package" value="com.thingit.plugins.SecureStorage"/>
+                <param name="android-package" value="com.thingit.plugins.securestorage.SecureStorage"/>
                 <param name="onload" value="true" />
             </feature>
         </config-file>

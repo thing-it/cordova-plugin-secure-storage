@@ -1,6 +1,7 @@
 package com.thingit.plugins.securestorage;
 
 import android.content.Context;
+import android.os.Build;
 import android.security.KeyPairGeneratorSpec;
 import android.security.keystore.UserNotAuthenticatedException;
 
@@ -15,6 +16,7 @@ import java.util.Calendar;
 public class RSA {
     private static final String KEYSTORE_PROVIDER = "AndroidKeyStore";
     private static final Cipher CIPHER = getCipher();
+
 
     public static byte[] encrypt(byte[] buf, String alias) throws Exception {
         return runCipher(Cipher.ENCRYPT_MODE, alias, buf);
@@ -53,6 +55,9 @@ public class RSA {
         }
     }
 
+    /**
+     * Check if we need to prompt for User's Credentials
+     */
     public static boolean userAuthenticationRequired(String alias) {
         try {
             // Do a quick encrypt/decrypt test
@@ -80,19 +85,20 @@ public class RSA {
         keyStore.load(null, null);
         Key key;
         switch (cipherMode) {
-            case Cipher.ENCRYPT_MODE -> {
+            case Cipher.ENCRYPT_MODE:
                 key = keyStore.getCertificate(alias).getPublicKey();
                 if (key == null) {
                     throw new Exception("Failed to load the public key for " + alias);
                 }
-            }
-            case Cipher.DECRYPT_MODE -> {
+                break;
+            case Cipher.DECRYPT_MODE:
                 key = keyStore.getKey(alias, null);
                 if (key == null) {
                     throw new Exception("Failed to load the private key for " + alias);
                 }
-            }
-            default -> throw new Exception("Invalid cipher mode parameter");
+                break;
+            default:
+                throw new Exception("Invalid cipher mode parameter");
         }
         return key;
     }
