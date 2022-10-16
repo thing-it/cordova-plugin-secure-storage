@@ -51,9 +51,9 @@
             </feature>
         </config-file>
 
-        <source-file src="src/android/com/thingit/plugins/SecureStorage.java" target-dir="src/com/thingit/plugins/" />
-        <source-file src="src/android/com/thingit/plugins/RSA.java" target-dir="src/com/thingit/plugins/" />
-        <source-file src="src/android/com/thingit/plugins/AES.java" target-dir="src/com/thingit/plugins/" />
-        <source-file src="src/android/com/thingit/plugins/SharedPreferencesHandler.java" target-dir="src/com/thingit/plugins/" />
+        <source-file src="src/android/com/thingit/plugins/securestorage/SecureStorage.java" target-dir="src/com/thingit/plugins/securestorage/" />
+        <source-file src="src/android/com/thingit/plugins/securestorage//RSA.java" target-dir="src/com/thingit/plugins/securestorage/" />
+        <source-file src="src/android/com/thingit/plugins/securestorage/AES.java" target-dir="src/com/thingit/plugins/securestorage/" />
+        <source-file src="src/android/com/thingit/plugins/securestorage/SharedPreferencesHandler.java" target-dir="src/com/thingit/plugins/securestorage/" />
     </platform>
 </plugin>
