@@ -1,26 +1,19 @@
-package com.crypho.plugins;
+package com.thingit.plugins.securestorage;
 
-import java.lang.reflect.Method;
-import java.util.Hashtable;
-import java.util.Map;
-import java.util.Iterator;
-import java.util.HashMap;
-
-import android.util.Log;
-import android.util.Base64;
-import android.os.Build;
 import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
-
-import org.apache.cordova.CallbackContext;
-import org.apache.cordova.CordovaArgs;
-import org.apache.cordova.CordovaPlugin;
+import android.os.Build;
+import android.util.Base64;
+import android.util.Log;
+import org.apache.cordova.*;
 import org.json.JSONException;
 import org.json.JSONObject;
-import org.json.JSONArray;
-import javax.crypto.Cipher;
-import android.content.ActivityNotFoundException;
+
+import java.lang.reflect.Method;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
 
 public class SecureStorage extends CordovaPlugin {
     private static final String TAG = "SecureStorage";
@@ -29,12 +22,11 @@ public class SecureStorage extends CordovaPlugin {
     private static final boolean MATCHES_ANDROID_API_28 = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P;
 
     private Context context;
-    private String packageName;
     private String serviceAlias;
 
     private SharedPreferencesHandler storage;
 
-    private Map<String, CallbackContext> subscribers = new HashMap<String, CallbackContext>();
+    private final Map<String, CallbackContext> subscribers = new HashMap<>();
 
     private boolean initialized = false;
     private String initializationError;
@@ -47,12 +39,10 @@ public class SecureStorage extends CordovaPlugin {
             }
 
             context = cordova.getActivity().getApplicationContext();
-            packageName = context.getPackageName();
 
-            serviceAlias = packageName + "." + SERVICE_NAME;
+            serviceAlias = context.getPackageName() + "." + SERVICE_NAME;
 
-            SharedPreferencesHandler preferences = new SharedPreferencesHandler(serviceAlias, context);
-            storage = preferences;
+            storage = new SharedPreferencesHandler(serviceAlias, context);
 
             if (!isDeviceSecure()) {
                 throw new Error("Device is not secure");
@@ -72,7 +62,7 @@ public class SecureStorage extends CordovaPlugin {
         try {
             if ("isDevicePasscodeSet".equals(action)) {
                 final boolean isSecure = isDeviceSecure();
-                callbackContext.success(isSecure);
+                callbackContext.success(isSecure ? 1 : 0);
                 return true;
             }
             if ("set".equals(action)) {
@@ -95,7 +85,6 @@ public class SecureStorage extends CordovaPlugin {
                 while (keys.hasNext()) {
                     String key = keys.next();
                     String value = storedJson.getString(key);
-                    if (value == null) continue;
 
                     JSONObject json = new JSONObject(value);
                     final byte[] encKey = Base64.decode(json.getString("key"), Base64.DEFAULT);
@@ -104,7 +93,7 @@ public class SecureStorage extends CordovaPlugin {
                     final byte[] iv = Base64.decode(data.getString("iv"), Base64.DEFAULT);
                     final byte[] adata = Base64.decode(data.getString("adata"), Base64.DEFAULT);
                     byte[] decryptedKey = RSA.decrypt(encKey, serviceAlias);
-                    String decrypted = new String(AES.decrypt(ct, decryptedKey, iv, adata));
+                    String decrypted = AES.decrypt(ct, decryptedKey, iv, adata);
                     storedJson.put(key, decrypted);
                 }
 
@@ -136,13 +125,12 @@ public class SecureStorage extends CordovaPlugin {
         return false;
     }
 
-    private void subscribeForEvent(CordovaArgs arguments, CallbackContext callbackContext) {
-        final String eventName = arguments.get(0);
+    private void subscribeForEvent(CordovaArgs arguments, CallbackContext callbackContext) throws JSONException {
+        final String eventName = arguments.getString(0);
         subscribers.put(eventName, callbackContext);
 
-        switch (eventName) {
-            case "initialized":
-                publishEvent(eventName);
+        if ("initialized".equals(eventName)) {
+            publishEvent(eventName);
         }
     }
 
@@ -150,18 +138,16 @@ public class SecureStorage extends CordovaPlugin {
         CallbackContext subscriber = subscribers.get(eventName);
         if (subscriber == null) return;
 
-        switch (eventName) {
-            case "initialized":
-                if (initialized) {
-                    subscriber.success();
-                    return;
-                }
-                if (initializationError != null) {
-                    subscriber.error(initializationError);
-                }
-                break;
-            default:
+        if ("initialized".equals(eventName)) {
+            if (initialized) {
                 subscriber.success();
+                return;
+            }
+            if (initializationError != null) {
+                subscriber.error(initializationError);
+            }
+        } else {
+            subscriber.success();
         }
     }
 
@@ -170,17 +156,17 @@ public class SecureStorage extends CordovaPlugin {
     }
 
     private boolean isDeviceSecure() {
-        KeyguardManager keyguardManager = (KeyguardManager)(context.getSystemService(Context.KEYGUARD_SERVICE));
+        KeyguardManager keyguardManager = (KeyguardManager) (context.getSystemService(Context.KEYGUARD_SERVICE));
         try {
             Method isSecure = null;
             isSecure = keyguardManager.getClass().getMethod("isDeviceSecure");
-            return ((Boolean) isSecure.invoke(keyguardManager)).booleanValue();
+            return (Boolean) isSecure.invoke(keyguardManager);
         } catch (Exception e) {
             return keyguardManager.isKeyguardSecure();
         }
     }
 
-    private void unlockCredentials() {
+    private void unlockCredentials() throws Exception {
         if (!MATCHES_ANDROID_API_28) {
             if (RSA.isEntryAvailable(serviceAlias)) return;
 
@@ -200,7 +186,7 @@ public class SecureStorage extends CordovaPlugin {
         }
     }
 
-    private void generateEncryptionKeys() {
+    private void generateEncryptionKeys() throws Exception {
         storage.clear();
         RSA.createKeyPair(context, serviceAlias);
     }
