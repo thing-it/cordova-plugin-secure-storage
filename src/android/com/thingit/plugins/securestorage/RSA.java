@@ -1,34 +1,21 @@
-package com.crypho.plugins;
- 
-import android.annotation.TargetApi;
+package com.thingit.plugins.securestorage;
+
 import android.content.Context;
 import android.os.Build;
 import android.security.KeyPairGeneratorSpec;
-import android.security.keystore.KeyGenParameterSpec;
-import android.security.keystore.KeyInfo;
-import android.security.keystore.KeyProperties;
 import android.security.keystore.UserNotAuthenticatedException;
-import android.util.Log;
- 
+
 import javax.crypto.Cipher;
 import javax.security.auth.x500.X500Principal;
- 
 import java.math.BigInteger;
 import java.security.Key;
-import java.security.KeyFactory;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
-import java.security.spec.AlgorithmParameterSpec;
-import java.security.spec.RSAKeyGenParameterSpec;
 import java.util.Calendar;
 
 public class RSA {
     private static final String KEYSTORE_PROVIDER = "AndroidKeyStore";
     private static final Cipher CIPHER = getCipher();
-    private static final Integer CERT_VALID_YEARS = 100;
-    private static final Boolean IS_API_23_AVAILABLE = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M;
-    private static final String TAG = "SecureStorage";
-
 
 
     public static byte[] encrypt(byte[] buf, String alias) throws Exception {
@@ -45,15 +32,15 @@ public class RSA {
         notAfter.add(Calendar.YEAR, 100);
         String principalString = String.format("CN=%s, OU=%s", alias, ctx.getPackageName());
         KeyPairGeneratorSpec spec = new KeyPairGeneratorSpec.Builder(ctx)
-            .setAlias(alias)
-            .setSubject(new X500Principal(principalString))
-            .setSerialNumber(BigInteger.ONE)
-            .setStartDate(notBefore.getTime())
-            .setEndDate(notAfter.getTime())
-            .setEncryptionRequired()
-            .setKeySize(2048)
-            .setKeyType("RSA")
-            .build();
+                .setAlias(alias)
+                .setSubject(new X500Principal(principalString))
+                .setSerialNumber(BigInteger.ONE)
+                .setStartDate(notBefore.getTime())
+                .setEndDate(notAfter.getTime())
+                .setEncryptionRequired()
+                .setKeySize(2048)
+                .setKeyType("RSA")
+                .build();
         KeyPairGenerator kpGenerator = KeyPairGenerator.getInstance("RSA", KEYSTORE_PROVIDER);
         kpGenerator.initialize(spec);
         kpGenerator.generateKeyPair();
@@ -70,9 +57,6 @@ public class RSA {
 
     /**
      * Check if we need to prompt for User's Credentials
-     *
-     * @param alias
-     * @return
      */
     public static boolean userAuthenticationRequired(String alias) {
         try {
@@ -107,13 +91,14 @@ public class RSA {
                     throw new Exception("Failed to load the public key for " + alias);
                 }
                 break;
-            case  Cipher.DECRYPT_MODE:
+            case Cipher.DECRYPT_MODE:
                 key = keyStore.getKey(alias, null);
                 if (key == null) {
                     throw new Exception("Failed to load the private key for " + alias);
                 }
                 break;
-            default : throw new Exception("Invalid cipher mode parameter");
+            default:
+                throw new Exception("Invalid cipher mode parameter");
         }
         return key;
     }
