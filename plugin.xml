@@ -27,6 +27,7 @@
         <config-file target="config.xml" parent="/*">
             <feature name="SecureStorage">
                 <param name="ios-package" value="SecureStorage"/>
+                <param name="onload" value="true" />
             </feature>
         </config-file>
         <source-file src="src/ios/SecureStorage.m" />

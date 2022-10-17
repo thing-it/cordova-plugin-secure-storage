@@ -5,73 +5,84 @@
 #import <Cordova/CDV.h>
 #import "SAMKeychain.h"
 
+static NSString *SERVICE_NAME = @"thing-it Mobile";
+
 @implementation SecureStorage
 
-- (void)init:(CDVInvokedUrlCommand*)command
+NSMutableDictionary<NSString *, NSString *> *subscribers;
+NSMutableDictionary<NSString *, NSString *> *cachedStore;
+BOOL *initialized;
+NSString *initializationError;
+
+- (void)pluginInitialize
 {
+    subscribers = [[NSMutableDictionary alloc] init];
+    cachedStore = [[NSMutableDictionary alloc] init];
+
     CFTypeRef accessibility;
     NSString *keychainAccessibility;
-    NSDictionary *keychainAccesssibilityMapping;
+    NSDictionary *keychainAccesssibilityMapping = [NSDictionary dictionaryWithObjectsAndKeys:
+          (__bridge id)(kSecAttrAccessibleAfterFirstUnlock), @"afterfirstunlock",
+          (__bridge id)(kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly), @"afterfirstunlockthisdeviceonly",
+          (__bridge id)(kSecAttrAccessibleWhenUnlocked), @"whenunlocked",
+          (__bridge id)(kSecAttrAccessibleWhenUnlockedThisDeviceOnly), @"whenunlockedthisdeviceonly",
+          (__bridge id)(kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly), @"whenpasscodesetthisdeviceonly",
+          nil];
 
-    if ([[[UIDevice currentDevice] systemVersion] floatValue] >= 8.0){
-          keychainAccesssibilityMapping = [NSDictionary dictionaryWithObjectsAndKeys:
-              (__bridge id)(kSecAttrAccessibleAfterFirstUnlock), @"afterfirstunlock",
-              (__bridge id)(kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly), @"afterfirstunlockthisdeviceonly",
-              (__bridge id)(kSecAttrAccessibleWhenUnlocked), @"whenunlocked",
-              (__bridge id)(kSecAttrAccessibleWhenUnlockedThisDeviceOnly), @"whenunlockedthisdeviceonly",
-              (__bridge id)(kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly), @"whenpasscodesetthisdeviceonly",
-              nil];
-    } else {
-          keychainAccesssibilityMapping = [NSDictionary dictionaryWithObjectsAndKeys:
-              (__bridge id)(kSecAttrAccessibleAfterFirstUnlock), @"afterfirstunlock",
-              (__bridge id)(kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly), @"afterfirstunlockthisdeviceonly",
-              (__bridge id)(kSecAttrAccessibleWhenUnlocked), @"whenunlocked",
-              (__bridge id)(kSecAttrAccessibleWhenUnlockedThisDeviceOnly), @"whenunlockedthisdeviceonly",
-              nil];
-    }
     keychainAccessibility = [[self.commandDelegate.settings objectForKey:[@"KeychainAccessibility" lowercaseString]] lowercaseString];
     if (keychainAccessibility == nil) {
-        [self successWithMessage: nil : command.callbackId];
+        initialized = YES;
     } else {
         if ([keychainAccesssibilityMapping objectForKey:(keychainAccessibility)] != nil) {
             accessibility = (__bridge CFTypeRef)([keychainAccesssibilityMapping objectForKey:(keychainAccessibility)]);
             [SAMKeychain setAccessibilityType:accessibility];
-            [self successWithMessage: nil : command.callbackId];
+            initialized = YES;
         } else {
-            [self failWithMessage: @"Unrecognized KeychainAccessibility value in config" : nil : command.callbackId];
+            initialized = NO;
+            initializationError = @"Unrecognized KeychainAccessibility value in config";
         }
     }
+
+    [self publishEvent:@"initialized"];
 }
 
-- (void)get:(CDVInvokedUrlCommand*)command
+- (void)getAll:(CDVInvokedUrlCommand*)command
 {
-    NSString *service = [command argumentAtIndex:0];
-    NSString *key = [command argumentAtIndex:1];
-    [self.commandDelegate runInBackground:^{
-        NSError *error;
+    NSError *error;
 
-        SAMKeychainQuery *query = [[SAMKeychainQuery alloc] init];
-        query.service = service;
-        query.account = key;
+    SAMKeychainQuery *query = [[SAMKeychainQuery alloc] init];
+    query.service = SERVICE_NAME;
 
-        if ([query fetch:&error]) {
-            [self successWithMessage: query.password : command.callbackId];
-        } else {
-            [self failWithMessage: @"Failure in SecureStorage.get()" : error : command.callbackId];
+    NSArray *accounts = [query fetchAll:&error];
+    if (accounts) {
+        for (id dict in accounts) {
+            cachedStore[[dict valueForKeyPath:@"acct"]] = command.callbackId;
+            NSString *key = [dict valueForKey:@"acct"];
+            cachedStore[key] = nil;
+
+            query.account = [dict valueForKeyPath:@"acct"];
+            NSLog(@"My dictionary is %@", dict);
         }
-    }];
+
+        if (!error) {
+            [self successWithMessage: nil : command.callbackId];
+        } else {
+            [self failWithMessage: @"Failure in SecureStorage.getAll()" : error : command.callbackId];
+        }
+    } else {
+        [self failWithMessage: @"Failure in SecureStorage.getAll()" : error : command.callbackId];
+    }
 }
 
 - (void)set:(CDVInvokedUrlCommand*)command
 {
-    NSString *service = [command argumentAtIndex:0];
-    NSString *key = [command argumentAtIndex:1];
-    NSString *value = [command argumentAtIndex:2];
+    NSString *key = [command argumentAtIndex:0];
+    NSString *value = [command argumentAtIndex:1];
     [self.commandDelegate runInBackground:^{
         NSError *error;
 
         SAMKeychainQuery *query = [[SAMKeychainQuery alloc] init];
-        query.service = service;
+        query.service = SERVICE_NAME;
         query.account = key;
         query.password = value;
 
@@ -85,13 +96,12 @@
 
 - (void)remove:(CDVInvokedUrlCommand*)command
 {
-    NSString *service = [command argumentAtIndex:0];
-    NSString *key = [command argumentAtIndex:1];
+    NSString *key = [command argumentAtIndex:0];
     [self.commandDelegate runInBackground:^{
         NSError *error;
 
         SAMKeychainQuery *query = [[SAMKeychainQuery alloc] init];
-        query.service = service;
+        query.service = SERVICE_NAME;
         query.account = key;
 
         if ([query deleteItem:&error]) {
@@ -102,41 +112,13 @@
     }];
 }
 
-- (void)keys:(CDVInvokedUrlCommand*)command
-{
-    NSString *service = [command argumentAtIndex:0];
-    [self.commandDelegate runInBackground:^{
-        NSError *error;
-
-        SAMKeychainQuery *query = [[SAMKeychainQuery alloc] init];
-        query.service = service;
-
-        NSArray *accounts = [query fetchAll:&error];
-        if (accounts) {
-            NSMutableArray *array = [NSMutableArray arrayWithCapacity:[accounts count]];
-            for (id dict in accounts) {
-                [array addObject:[dict valueForKeyPath:@"acct"]];
-            }
-
-            CDVPluginResult *commandResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsArray:array];
-            [self.commandDelegate sendPluginResult:commandResult callbackId:command.callbackId];
-        } else if ([error code] == errSecItemNotFound) {
-            CDVPluginResult *commandResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsArray:[NSArray array]];
-            [self.commandDelegate sendPluginResult:commandResult callbackId:command.callbackId];
-        } else {
-            [self failWithMessage: @"Failure in SecureStorage.keys()" : error : command.callbackId];
-        }
-    }];
-}
-
 - (void)clear:(CDVInvokedUrlCommand*)command
 {
-    NSString *service = [command argumentAtIndex:0];
     [self.commandDelegate runInBackground:^{
         NSError *error;
 
         SAMKeychainQuery *query = [[SAMKeychainQuery alloc] init];
-        query.service = service;
+        query.service = SERVICE_NAME;
 
         NSArray *accounts = [query fetchAll:&error];
         if (accounts) {
@@ -194,6 +176,34 @@
     CDVPluginResult *commandResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:errorMessage];
 
     [self.commandDelegate sendPluginResult:commandResult callbackId:callbackId];
+}
+
+- (void)subscribeForEvent:(CDVInvokedUrlCommand *)command {
+    NSString *eventName = [command argumentAtIndex:0];;
+
+    subscribers[eventName] = command.callbackId;
+
+    if ([eventName isEqualToString:@"initialized"]) {
+        [self publishEvent:eventName];
+    }
+}
+
+- (void)publishEvent:(NSString *)eventName {
+    if (subscribers[eventName] == nil) {
+        return;
+    }
+
+    if ([eventName isEqualToString:@"initialized"]) {
+        if (initialized) {
+            [self successWithMessage: nil : subscribers[eventName]];
+            return;
+        }
+        if (initializationError != nil) {
+            [self failWithMessage: initializationError : nil : subscribers[eventName]];
+        }
+    } else {
+        [self successWithMessage: nil : subscribers[eventName]];
+    }
 }
 
 @end

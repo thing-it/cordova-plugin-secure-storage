@@ -25,6 +25,7 @@ public class SecureStorage extends CordovaPlugin {
     private String serviceAlias;
 
     private SharedPreferencesHandler storage;
+    private JSONObject cachedStore;
 
     private final Map<String, CallbackContext> subscribers = new HashMap<>();
 
@@ -50,7 +51,10 @@ public class SecureStorage extends CordovaPlugin {
 
             unlockCredentials();
 
+            cacheStore();
+
             initialized = true;
+            publishEvent("initialized");
         } catch (Exception e) {
             Log.e(TAG, "Init failed :", e);
             initializationError = e.getMessage();
@@ -74,41 +78,29 @@ public class SecureStorage extends CordovaPlugin {
                 byte[] aes_key_enc = RSA.encrypt(aes_key, serviceAlias);
                 result.put("key", Base64.encodeToString(aes_key_enc, Base64.DEFAULT));
                 storage.store(key, result.toString());
+                cachedStore.put(key, value);
                 callbackContext.success();
                 return true;
             }
             if ("getAll".equals(action)) {
-                Map<String, String> store = storage.fetchAll();
-                JSONObject storedJson = new JSONObject(store);
-
-                Iterator<String> keys = storedJson.keys();
-                while (keys.hasNext()) {
-                    String key = keys.next();
-                    String value = storedJson.getString(key);
-
-                    JSONObject json = new JSONObject(value);
-                    final byte[] encKey = Base64.decode(json.getString("key"), Base64.DEFAULT);
-                    JSONObject data = json.getJSONObject("value");
-                    final byte[] ct = Base64.decode(data.getString("ct"), Base64.DEFAULT);
-                    final byte[] iv = Base64.decode(data.getString("iv"), Base64.DEFAULT);
-                    final byte[] adata = Base64.decode(data.getString("adata"), Base64.DEFAULT);
-                    byte[] decryptedKey = RSA.decrypt(encKey, serviceAlias);
-                    String decrypted = AES.decrypt(ct, decryptedKey, iv, adata);
-                    storedJson.put(key, decrypted);
+                if (cachedStore == null) {
+                    cacheStore();
                 }
 
-                callbackContext.success(storedJson.toString());
+                callbackContext.success(cachedStore.toString());
 
                 return true;
             }
             if ("remove".equals(action)) {
                 String key = args.getString(0);
                 storage.remove(key);
+                cachedStore.remove(key);
                 callbackContext.success();
                 return true;
             }
             if ("clear".equals(action)) {
                 storage.clear();
+                cachedStore = new JSONObject();
                 callbackContext.success();
                 return true;
             }
@@ -193,5 +185,28 @@ public class SecureStorage extends CordovaPlugin {
 
     private void startActivity(Intent intent) {
         cordova.getActivity().startActivity(intent);
+    }
+
+    private void cacheStore() throws Exception {
+        Map<String, String> store = storage.fetchAll();
+        JSONObject storedJson = new JSONObject(store);
+
+        Iterator<String> keys = storedJson.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            String value = storedJson.getString(key);
+
+            JSONObject json = new JSONObject(value);
+            final byte[] encKey = Base64.decode(json.getString("key"), Base64.DEFAULT);
+            JSONObject data = json.getJSONObject("value");
+            final byte[] ct = Base64.decode(data.getString("ct"), Base64.DEFAULT);
+            final byte[] iv = Base64.decode(data.getString("iv"), Base64.DEFAULT);
+            final byte[] adata = Base64.decode(data.getString("adata"), Base64.DEFAULT);
+            byte[] decryptedKey = RSA.decrypt(encKey, serviceAlias);
+            String decrypted = AES.decrypt(ct, decryptedKey, iv, adata);
+            storedJson.put(key, decrypted);
+        }
+
+        cachedStore = storedJson;
     }
 }

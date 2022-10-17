@@ -13,8 +13,8 @@ class SecureStorage {
         return promisedExecution('getAll');
     }
 
-    async set(key, value) {
-        if (!_isString(value)) {
+    async set(key, value, encrypted = true) {
+        if (typeof key !== 'string' || typeof value !== 'string') {
             throw new Error('Value must be a string');
         }
 
@@ -22,7 +22,7 @@ class SecureStorage {
     }
 
     async remove(key) {
-        if (!_isString(key)) {
+        if (typeof key !== 'string') {
             throw new Error('Key must be a string');
         }
         return promisedExecution('remove', key);
@@ -33,7 +33,7 @@ class SecureStorage {
     }
 
     subscribeForEvent(eventName, callbackSuccess, callbackError) {
-        exec(callbackSuccess, callbackError, PLUGIN_NAME, "subscribe", []);
+        exec(callbackSuccess, callbackError, PLUGIN_NAME, "subscribe", [eventName]);
     }
 }
 
