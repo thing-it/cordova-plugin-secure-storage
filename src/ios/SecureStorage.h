@@ -1,8 +1,13 @@
 #import <Cordova/CDVPlugin.h>
 
-@interface SecureStorage : CDVPlugin
+@interface SecureStorage : CDVPlugin {
+    NSMutableDictionary<NSString *, NSString *> *subscribers;
+    NSMutableDictionary<NSString *, NSString *> *cachedStore;
+    BOOL *initialized;
+    NSString *initializationError;
+}
 
-- (void)init:(CDVInvokedUrlCommand*)command;
+- (BOOL)cacheStore:(NSError **)error;
 - (void)getAll:(CDVInvokedUrlCommand*)command;
 - (void)set:(CDVInvokedUrlCommand*)command;
 - (void)remove:(CDVInvokedUrlCommand*)command;

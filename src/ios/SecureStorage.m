@@ -9,15 +9,9 @@ static NSString *SERVICE_NAME = @"thing-it Mobile";
 
 @implementation SecureStorage
 
-NSMutableDictionary<NSString *, NSString *> *subscribers;
-NSMutableDictionary<NSString *, NSString *> *cachedStore;
-BOOL *initialized;
-NSString *initializationError;
-
 - (void)pluginInitialize
 {
     subscribers = [[NSMutableDictionary alloc] init];
-    cachedStore = [[NSMutableDictionary alloc] init];
 
     CFTypeRef accessibility;
     NSString *keychainAccessibility;
@@ -43,35 +37,68 @@ NSString *initializationError;
         }
     }
 
+    NSError *error;
+    if (initialized && ![self cacheStore]) {
+        initialized = NO;
+        initializationError = @"Cant fetch store";
+    }
+
     [self publishEvent:@"initialized"];
+}
+
+- (BOOL)cacheStore
+{
+    NSError *error;
+    SAMKeychainQuery *keysQuery = [[SAMKeychainQuery alloc] init];
+    keysQuery.service = SERVICE_NAME;
+
+    cachedStore = [[NSMutableDictionary alloc] init];
+
+    NSArray *accounts = [keysQuery fetchAll:&error];
+    if (accounts) {
+        for (id dict in accounts) {
+            NSString *key = [dict valueForKeyPath:@"acct"];
+            SAMKeychainQuery *query = [[SAMKeychainQuery alloc] init];
+            query.service = SERVICE_NAME;
+            query.account = key;
+
+            if ([query fetch:&error]) {
+                cachedStore[key] = query.password;
+            } else {
+                break;
+            }
+        }
+
+        if (!error) {
+            return YES;
+        } else {
+            return NO;
+        }
+    } else if ([error code] == errSecItemNotFound) {
+        return YES;
+    } else {
+        return NO;
+    }
 }
 
 - (void)getAll:(CDVInvokedUrlCommand*)command
 {
     NSError *error;
 
-    SAMKeychainQuery *query = [[SAMKeychainQuery alloc] init];
-    query.service = SERVICE_NAME;
+    if (cachedStore == nil) {
+        [self cacheStore];
 
-    NSArray *accounts = [query fetchAll:&error];
-    if (accounts) {
-        for (id dict in accounts) {
-            cachedStore[[dict valueForKeyPath:@"acct"]] = command.callbackId;
-            NSString *key = [dict valueForKey:@"acct"];
-            cachedStore[key] = nil;
-
-            query.account = [dict valueForKeyPath:@"acct"];
-            NSLog(@"My dictionary is %@", dict);
-        }
-
-        if (!error) {
-            [self successWithMessage: nil : command.callbackId];
-        } else {
+        if (error) {
             [self failWithMessage: @"Failure in SecureStorage.getAll()" : error : command.callbackId];
         }
-    } else {
-        [self failWithMessage: @"Failure in SecureStorage.getAll()" : error : command.callbackId];
     }
+
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:cachedStore options:NSJSONWritingPrettyPrinted error:&error];
+    if (!jsonData || error) {
+        [self failWithMessage: @"Failure in SecureStorage.getAll()" : error : command.callbackId];
+        return;
+    }
+    [self successWithMessage: [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding] : command.callbackId];
 }
 
 - (void)set:(CDVInvokedUrlCommand*)command
@@ -178,8 +205,8 @@ NSString *initializationError;
     [self.commandDelegate sendPluginResult:commandResult callbackId:callbackId];
 }
 
-- (void)subscribeForEvent:(CDVInvokedUrlCommand *)command {
-    NSString *eventName = [command argumentAtIndex:0];;
+- (void)subscribe:(CDVInvokedUrlCommand *)command {
+    NSString *eventName = [command argumentAtIndex:0];
 
     subscribers[eventName] = command.callbackId;
 
