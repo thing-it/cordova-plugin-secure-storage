@@ -36,7 +36,7 @@ public class SecureStorage extends CordovaPlugin {
     protected void pluginInitialize() {
         try {
             if (!SUPPORTED) {
-                throw new Error("API 21 (Android 5.0 Lollipop) is required. This device is running API " + Build.VERSION.SDK_INT);
+                throw new Exception("API 21 (Android 5.0 Lollipop) is required. This device is running API " + Build.VERSION.SDK_INT);
             }
 
             context = cordova.getActivity().getApplicationContext();
@@ -46,7 +46,7 @@ public class SecureStorage extends CordovaPlugin {
             storage = new SharedPreferencesHandler(serviceAlias, context);
 
             if (!isDeviceSecure()) {
-                throw new Error("Device is not secure");
+                throw new Exception("Device is not secure");
             }
 
             unlockCredentials();
