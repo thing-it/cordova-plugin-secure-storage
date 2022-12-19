@@ -2,9 +2,9 @@
 <plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
     xmlns:android="http://schemas.android.com/apk/res/android"
     id="cordova-plugin-secure-storage"
-    version="4.1.10">
+    version="4.1.11">
 
-    <name>SecureStorage</name>
+    <name>@thing-it/cordova-plugin-secure-storage</name>
     <author>Marvin Erkes</author>
 
     <description>
