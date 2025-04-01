@@ -1,6 +1,6 @@
 {
   "name": "@thing-it/cordova-plugin-secure-storage",
-  "version": "4.1.11",
+  "version": "4.1.12",
   "description": "Secure storage plugin for iOS & Android",
   "author": "Thing Technologies",
   "contributors": [
@@ -51,10 +51,6 @@
     "eslint": "./node_modules/.bin/eslint www/securestorage.js tests/tests.js",
     "version": "node ./bump-version.js && git add -A plugin.xml",
     "postversion": "git push && git push --tags && npm publish --verbose"
-  },
-  "devDependencies": {
-    "cordova-plugin-test-framework": ">=1.0.0",
-    "eslint": ""
   },
   "license": "MIT",
   "bugs": {
