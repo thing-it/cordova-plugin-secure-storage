@@ -9,26 +9,26 @@ static NSString *SERVICE_NAME = @"thing-it Mobile";
 
 @implementation SecureStorage
 
-- (void)pluginInitialize
-{
+- (void)pluginInitialize {
     subscribers = [[NSMutableDictionary alloc] init];
 
     CFTypeRef accessibility;
     NSString *keychainAccessibility;
-    NSDictionary *keychainAccesssibilityMapping = [NSDictionary dictionaryWithObjectsAndKeys:
-          (__bridge id)(kSecAttrAccessibleAfterFirstUnlock), @"afterfirstunlock",
-          (__bridge id)(kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly), @"afterfirstunlockthisdeviceonly",
-          (__bridge id)(kSecAttrAccessibleWhenUnlocked), @"whenunlocked",
-          (__bridge id)(kSecAttrAccessibleWhenUnlockedThisDeviceOnly), @"whenunlockedthisdeviceonly",
-          (__bridge id)(kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly), @"whenpasscodesetthisdeviceonly",
-          nil];
+    NSDictionary *keychainAccesssibilityMapping = @{
+        @"afterfirstunlock": (__bridge id)(kSecAttrAccessibleAfterFirstUnlock),
+        @"afterfirstunlockthisdeviceonly": (__bridge id)(kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly),
+        @"whenunlocked": (__bridge id)(kSecAttrAccessibleWhenUnlocked),
+        @"whenunlockedthisdeviceonly": (__bridge id)(kSecAttrAccessibleWhenUnlockedThisDeviceOnly),
+        @"whenpasscodesetthisdeviceonly": (__bridge id)(kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly)
+    };
 
-    keychainAccessibility = [[self.commandDelegate.settings objectForKey:[@"KeychainAccessibility" lowercaseString]] lowercaseString];
+    keychainAccessibility = [[[self.commandDelegate.settings objectForKey:@"KeychainAccessibility"] lowercaseString] copy];
+
     if (keychainAccessibility == nil) {
         initialized = YES;
     } else {
-        if ([keychainAccesssibilityMapping objectForKey:(keychainAccessibility)] != nil) {
-            accessibility = (__bridge CFTypeRef)([keychainAccesssibilityMapping objectForKey:(keychainAccessibility)]);
+        if ([keychainAccesssibilityMapping objectForKey:keychainAccessibility] != nil) {
+            accessibility = (__bridge CFTypeRef)(keychainAccesssibilityMapping[keychainAccessibility]);
             [SAMKeychain setAccessibilityType:accessibility];
             initialized = YES;
         } else {
@@ -37,7 +37,6 @@ static NSString *SERVICE_NAME = @"thing-it Mobile";
         }
     }
 
-    NSError *error;
     if (initialized && ![self cacheStore]) {
         initialized = NO;
         initializationError = @"Cant fetch store";
@@ -46,15 +45,14 @@ static NSString *SERVICE_NAME = @"thing-it Mobile";
     [self publishEvent:@"initialized"];
 }
 
-- (BOOL)cacheStore
-{
+- (BOOL)cacheStore {
     NSError *error;
     SAMKeychainQuery *keysQuery = [[SAMKeychainQuery alloc] init];
     keysQuery.service = SERVICE_NAME;
 
     cachedStore = [[NSMutableDictionary alloc] init];
-
     NSArray *accounts = [keysQuery fetchAll:&error];
+
     if (accounts) {
         for (id dict in accounts) {
             NSString *key = [dict valueForKeyPath:@"acct"];
@@ -81,69 +79,72 @@ static NSString *SERVICE_NAME = @"thing-it Mobile";
     }
 }
 
-- (void)getAll:(CDVInvokedUrlCommand*)command
-{
+- (void)getAll:(CDVInvokedUrlCommand*)command {
     NSError *error;
 
     if (cachedStore == nil) {
         [self cacheStore];
 
         if (error) {
-            [self failWithMessage: @"Failure in SecureStorage.getAll()" : error : command.callbackId];
+            [self failWithMessage:@"Failure in SecureStorage.getAll()" error:error callbackId:command.callbackId];
+            return;
         }
     }
 
     NSData *jsonData = [NSJSONSerialization dataWithJSONObject:cachedStore options:NSJSONWritingPrettyPrinted error:&error];
     if (!jsonData || error) {
-        [self failWithMessage: @"Failure in SecureStorage.getAll()" : error : command.callbackId];
+        [self failWithMessage:@"Failure in SecureStorage.getAll()" error:error callbackId:command.callbackId];
         return;
     }
-    [self successWithMessage: [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding] : command.callbackId];
+
+    NSString *jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+    [self successWithMessage:jsonString :command.callbackId];
 }
 
-- (void)set:(CDVInvokedUrlCommand*)command
-{
+- (void)set:(CDVInvokedUrlCommand*)command {
     NSString *key = [command argumentAtIndex:0];
     NSString *value = [command argumentAtIndex:1];
+
     [self.commandDelegate runInBackground:^{
         NSError *error;
-
         SAMKeychainQuery *query = [[SAMKeychainQuery alloc] init];
         query.service = SERVICE_NAME;
         query.account = key;
         query.password = value;
 
         if ([query save:&error]) {
-            [self successWithMessage: key : command.callbackId];
+            cachedStore[key] = value;
+            [self successWithMessage:key :command.callbackId];
         } else {
-            [self failWithMessage: @"Failure in SecureStorage.set()" : error : command.callbackId];
+            [self failWithMessage:@"Failure in SecureStorage.set()" error:error callbackId:command.callbackId account:key];
         }
     }];
 }
 
-- (void)remove:(CDVInvokedUrlCommand*)command
-{
+- (void)remove:(CDVInvokedUrlCommand*)command {
     NSString *key = [command argumentAtIndex:0];
+
     [self.commandDelegate runInBackground:^{
         NSError *error;
-
         SAMKeychainQuery *query = [[SAMKeychainQuery alloc] init];
         query.service = SERVICE_NAME;
         query.account = key;
 
         if ([query deleteItem:&error]) {
-            [self successWithMessage: key : command.callbackId];
+            [cachedStore removeObjectForKey:key];
+            [self successWithMessage:key :command.callbackId];
         } else {
-            [self failWithMessage: @"Failure in SecureStorage.remove()" : error : command.callbackId];
+            [self failWithMessage:@"Failure in SecureStorage.remove()" error:error callbackId:command.callbackId account:key];
         }
+
+        cachedStore = nil;
+        [self cacheStore];
     }];
 }
 
-- (void)clear:(CDVInvokedUrlCommand*)command
-{
+- (void)clear:(CDVInvokedUrlCommand*)command {
     [self.commandDelegate runInBackground:^{
         NSError *error;
-
         SAMKeychainQuery *query = [[SAMKeychainQuery alloc] init];
         query.service = SERVICE_NAME;
 
@@ -152,62 +153,70 @@ static NSString *SERVICE_NAME = @"thing-it Mobile";
             for (id dict in accounts) {
                 query.account = [dict valueForKeyPath:@"acct"];
                 if (![query deleteItem:&error]) {
-                    break;
+                    [self failWithMessage:@"Failure in SecureStorage.clear()" error:error callbackId:command.callbackId account:query.account];
+                    return;
                 }
             }
-
-            if (!error) {
-                [self successWithMessage: nil : command.callbackId];
-            } else {
-                [self failWithMessage: @"Failure in SecureStorage.clear()" : error : command.callbackId];
-            }
-
+            cachedStore = nil;
+            [self cacheStore];
+            [self successWithMessage:nil :command.callbackId];
         } else if ([error code] == errSecItemNotFound) {
-            [self successWithMessage: nil : command.callbackId];
+            cachedStore = nil;
+            [self cacheStore];
+            [self successWithMessage:nil :command.callbackId];
         } else {
-            [self failWithMessage: @"Failure in SecureStorage.clear()" : error : command.callbackId];
+            [self failWithMessage:@"Failure in SecureStorage.clear()" error:error callbackId:command.callbackId];
         }
-
     }];
 }
 
-- (void)isDevicePasscodeSet:(CDVInvokedUrlCommand*)command;
-{
-	[self.commandDelegate runInBackground:^{
-		__block CDVPluginResult* pluginResult = nil;
-		NSError *passcodeError = nil;
+- (void)isDevicePasscodeSet:(CDVInvokedUrlCommand*)command {
+    [self.commandDelegate runInBackground:^{
+        NSError *passcodeError = nil;
+        CDVPluginResult* pluginResult = nil;
 
-		if (NSClassFromString(@"LAContext") != nil) {
-			LAContext *laContext = [[LAContext alloc] init];
-			if ([laContext canEvaluatePolicy: LAPolicyDeviceOwnerAuthentication error: &passcodeError]) {
-				pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsBool:TRUE];
-			} else {
-				pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsBool:FALSE];
-			}
-		} else {
-			pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:[passcodeError localizedDescription]];
-		}
-		[self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
-	}];
+        if (NSClassFromString(@"LAContext") != nil) {
+            LAContext *laContext = [[LAContext alloc] init];
+            if ([laContext canEvaluatePolicy:LAPolicyDeviceOwnerAuthentication error:&passcodeError]) {
+                pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsBool:YES];
+            } else {
+                pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsBool:NO];
+            }
+        } else {
+            pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:[passcodeError localizedDescription]];
+        }
+        [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+    }];
 }
 
--(void)successWithMessage:(NSString *)message : (NSString *)callbackId
-{
-        CDVPluginResult *commandResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:message];
-        [self.commandDelegate sendPluginResult:commandResult callbackId:callbackId];
+- (void)successWithMessage:(NSString *)message :(NSString *)callbackId {
+    CDVPluginResult *commandResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:message];
+    [self.commandDelegate sendPluginResult:commandResult callbackId:callbackId];
 }
 
--(void)failWithMessage:(NSString *)message : (NSError *)error : (NSString *)callbackId
-{
-    NSString        *errorMessage = (error) ? [NSString stringWithFormat:@"%@ - %@", message, [error localizedDescription]] : message;
-    CDVPluginResult *commandResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:errorMessage];
+- (void)failWithMessage:(NSString *)message error:(NSError *)error callbackId:(NSString *)callbackId {
+    [self failWithMessage:message error:error callbackId:callbackId account:nil];
+}
 
+- (void)failWithMessage:(NSString *)message error:(NSError *)error callbackId:(NSString *)callbackId account:(NSString *)account {
+    NSMutableDictionary *errorDict = [@{ @"message": message ?: @"Unknown error" } mutableCopy];
+
+    if (error) {
+        errorDict[@"status"] = @(error.code);
+        errorDict[@"description"] = error.localizedDescription ?: @"No description";
+        errorDict[@"domain"] = error.domain ?: @"";
+    }
+    if (account) {
+        errorDict[@"account"] = account;
+        errorDict[@"service"] = SERVICE_NAME;
+    }
+
+    CDVPluginResult *commandResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsDictionary:errorDict];
     [self.commandDelegate sendPluginResult:commandResult callbackId:callbackId];
 }
 
 - (void)subscribe:(CDVInvokedUrlCommand *)command {
     NSString *eventName = [command argumentAtIndex:0];
-
     subscribers[eventName] = command.callbackId;
 
     if ([eventName isEqualToString:@"initialized"]) {
@@ -222,14 +231,12 @@ static NSString *SERVICE_NAME = @"thing-it Mobile";
 
     if ([eventName isEqualToString:@"initialized"]) {
         if (initialized) {
-            [self successWithMessage: nil : subscribers[eventName]];
-            return;
-        }
-        if (initializationError != nil) {
-            [self failWithMessage: initializationError : nil : subscribers[eventName]];
+            [self successWithMessage:nil :subscribers[eventName]];
+        } else if (initializationError != nil) {
+            [self failWithMessage:initializationError error:nil callbackId:subscribers[eventName]];
         }
     } else {
-        [self successWithMessage: nil : subscribers[eventName]];
+        [self successWithMessage:nil :subscribers[eventName]];
     }
 }
 

@@ -34,11 +34,12 @@
 		}
 		return NO;
 	}
+
 	NSMutableDictionary *query = nil;
-	NSMutableDictionary * searchQuery = [self query];
+	NSMutableDictionary *searchQuery = [self query];
 	status = SecItemCopyMatching((__bridge CFDictionaryRef)searchQuery, nil);
 	if (status == errSecSuccess) {//item already exists, update it!
-		query = [[NSMutableDictionary alloc]init];
+		query = [[NSMutableDictionary alloc] init];
 		[query setObject:self.passwordData forKey:(__bridge id)kSecValueData];
 #if __IPHONE_4_0 && TARGET_OS_IPHONE
 		CFTypeRef accessibilityType = [SAMKeychain accessibilityType];
@@ -47,7 +48,10 @@
 		}
 #endif
 		status = SecItemUpdate((__bridge CFDictionaryRef)(searchQuery), (__bridge CFDictionaryRef)(query));
-	}else if(status == errSecItemNotFound){//item not found, create it!
+		if (status != errSecSuccess && error != NULL) {
+			*error = [[self class] errorWithCode:status];
+		}
+	} else if (status == errSecItemNotFound) {//item not found, create it!
 		query = [self query];
 		if (self.label) {
 			[query setObject:self.label forKey:(__bridge id)kSecAttrLabel];
@@ -60,12 +64,13 @@
 		}
 #endif
 		status = SecItemAdd((__bridge CFDictionaryRef)query, NULL);
+		if (status != errSecSuccess && error != NULL) {
+			*error = [[self class] errorWithCode:status];
+		}
 	}
-	if (status != errSecSuccess && error != NULL) {
-		*error = [[self class] errorWithCode:status];
-	}
-	return (status == errSecSuccess);}
 
+	return (status == errSecSuccess);
+}
 
 - (BOOL)deleteItem:(NSError *__autoreleasing *)error {
 	OSStatus status = SAMKeychainErrorBadArguments;
