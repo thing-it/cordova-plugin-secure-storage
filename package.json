@@ -1,6 +1,6 @@
 {
   "name": "@thing-it/cordova-plugin-secure-storage",
-  "version": "4.1.12",
+  "version": "4.1.13",
   "description": "Secure storage plugin for iOS & Android",
   "author": "Thing Technologies",
   "contributors": [

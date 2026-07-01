@@ -3,7 +3,7 @@
 @interface SecureStorage : CDVPlugin {
     NSMutableDictionary<NSString *, NSString *> *subscribers;
     NSMutableDictionary<NSString *, NSString *> *cachedStore;
-    BOOL *initialized;
+    BOOL initialized;
     NSString *initializationError;
 }
 

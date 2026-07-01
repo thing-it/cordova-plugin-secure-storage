@@ -1,6 +1,11 @@
 Changelog
 =========
 
+4.1.13
+-------------------
+
+- Update iOS implementation for Cordova iOS 8.x compatibility.
+
 3.0.2 - 2019-04-15
 ------------------
 
