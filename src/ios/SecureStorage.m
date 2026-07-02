@@ -2,7 +2,7 @@
 #import <Security/Security.h>
 #import <LocalAuthentication/LocalAuthentication.h>
 #import "SecureStorage.h"
-#import <Cordova/CDV.h>
+#import <Cordova/Cordova.h>
 #import "SAMKeychain.h"
 
 static NSString *SERVICE_NAME = @"thing-it Mobile";
