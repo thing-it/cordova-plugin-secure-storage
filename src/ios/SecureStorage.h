@@ -2,7 +2,9 @@
 
 @interface SecureStorage : CDVPlugin {
     NSMutableDictionary<NSString *, NSString *> *subscribers;
+    // Only accessed on storeQueue
     NSMutableDictionary<NSString *, NSString *> *cachedStore;
+    dispatch_queue_t storeQueue;
     BOOL initialized;
     NSString *initializationError;
 }
