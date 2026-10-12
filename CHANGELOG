@@ -1,6 +1,14 @@
 Changelog
 =========
 
+4.1.14
+-------------------
+
+- Fix iOS crash in -[SecureStorage cacheStore] caused by
+  concurrent access to the in-memory keychain cache. set/remove/clear/getAll
+  now run on a private serial queue, the cache is only published once fully
+  built, and remove no longer refetches the whole keychain.
+
 4.1.13
 -------------------
 

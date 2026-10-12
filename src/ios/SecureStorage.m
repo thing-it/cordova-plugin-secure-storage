@@ -37,75 +37,100 @@ static NSString *SERVICE_NAME = @"thing-it Mobile";
         }
     }
 
-    if (initialized && ![self cacheStore]) {
-        initialized = NO;
-        initializationError = @"Cant fetch store";
+    // All access to cachedStore and all keychain I/O of set/remove/clear/getAll
+    // is serialized on this queue; cordova's runInBackground is concurrent.
+    storeQueue = dispatch_queue_create("com.thingit.securestorage.store", DISPATCH_QUEUE_SERIAL);
+
+    if (initialized) {
+        __block BOOL cached = NO;
+        dispatch_sync(storeQueue, ^{
+            cached = [self cacheStore:nil];
+        });
+
+        if (!cached) {
+            initialized = NO;
+            initializationError = @"Cant fetch store";
+        }
     }
 
     [self publishEvent:@"initialized"];
 }
 
-- (BOOL)cacheStore {
+// Must only be called on storeQueue. Assigns cachedStore only if the whole store was fetched.
+- (BOOL)cacheStore:(NSError **)outError {
     NSError *error;
     SAMKeychainQuery *keysQuery = [[SAMKeychainQuery alloc] init];
     keysQuery.service = SERVICE_NAME;
 
-    cachedStore = [[NSMutableDictionary alloc] init];
+    NSMutableDictionary<NSString *, NSString *> *store = [[NSMutableDictionary alloc] init];
     NSArray *accounts = [keysQuery fetchAll:&error];
 
-    if (accounts) {
-        for (id dict in accounts) {
-            NSString *key = [dict valueForKeyPath:@"acct"];
-            SAMKeychainQuery *query = [[SAMKeychainQuery alloc] init];
-            query.service = SERVICE_NAME;
-            query.account = key;
-
-            if ([query fetch:&error]) {
-                cachedStore[key] = query.password;
-            } else {
-                break;
-            }
-        }
-
-        if (!error) {
+    if (!accounts) {
+        if ([error code] == errSecItemNotFound) {
+            cachedStore = store;
             return YES;
-        } else {
-            return NO;
         }
-    } else if ([error code] == errSecItemNotFound) {
-        return YES;
-    } else {
+        if (outError) {
+            *outError = error;
+        }
         return NO;
     }
+
+    for (id dict in accounts) {
+        NSString *key = [dict valueForKeyPath:@"acct"];
+        if (![key isKindOfClass:[NSString class]]) {
+            NSLog(@"[SecureStorage] Skipping keychain item without account name");
+            continue;
+        }
+
+        SAMKeychainQuery *query = [[SAMKeychainQuery alloc] init];
+        query.service = SERVICE_NAME;
+        query.account = key;
+
+        if (![query fetch:&error]) {
+            if (outError) {
+                *outError = error;
+            }
+            return NO;
+        }
+
+        NSString *password = query.password;
+        if (password == nil) {
+            NSLog(@"[SecureStorage] Skipping keychain item \"%@\": value is not a UTF-8 string", key);
+            continue;
+        }
+        store[key] = password;
+    }
+
+    cachedStore = store;
+    return YES;
 }
 
 - (void)getAll:(CDVInvokedUrlCommand*)command {
-    NSError *error;
+    dispatch_async(storeQueue, ^{
+        NSError *error;
 
-    if (cachedStore == nil) {
-        [self cacheStore];
-
-        if (error) {
+        if (self->cachedStore == nil && ![self cacheStore:&error]) {
             [self failWithMessage:@"Failure in SecureStorage.getAll()" error:error callbackId:command.callbackId];
             return;
         }
-    }
 
-    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:cachedStore options:NSJSONWritingPrettyPrinted error:&error];
-    if (!jsonData || error) {
-        [self failWithMessage:@"Failure in SecureStorage.getAll()" error:error callbackId:command.callbackId];
-        return;
-    }
+        NSData *jsonData = [NSJSONSerialization dataWithJSONObject:self->cachedStore options:NSJSONWritingPrettyPrinted error:&error];
+        if (!jsonData || error) {
+            [self failWithMessage:@"Failure in SecureStorage.getAll()" error:error callbackId:command.callbackId];
+            return;
+        }
 
-    NSString *jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
-    [self successWithMessage:jsonString :command.callbackId];
+        NSString *jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+        [self successWithMessage:jsonString :command.callbackId];
+    });
 }
 
 - (void)set:(CDVInvokedUrlCommand*)command {
     NSString *key = [command argumentAtIndex:0];
     NSString *value = [command argumentAtIndex:1];
 
-    [self.commandDelegate runInBackground:^{
+    dispatch_async(storeQueue, ^{
         NSError *error;
         SAMKeychainQuery *query = [[SAMKeychainQuery alloc] init];
         query.service = SERVICE_NAME;
@@ -113,37 +138,40 @@ static NSString *SERVICE_NAME = @"thing-it Mobile";
         query.password = value;
 
         if ([query save:&error]) {
-            cachedStore[key] = value;
+            if (key != nil && value != nil) {
+                self->cachedStore[key] = value;
+            }
             [self successWithMessage:key :command.callbackId];
         } else {
             [self failWithMessage:@"Failure in SecureStorage.set()" error:error callbackId:command.callbackId account:key];
         }
-    }];
+    });
 }
 
 - (void)remove:(CDVInvokedUrlCommand*)command {
     NSString *key = [command argumentAtIndex:0];
 
-    [self.commandDelegate runInBackground:^{
+    dispatch_async(storeQueue, ^{
         NSError *error;
         SAMKeychainQuery *query = [[SAMKeychainQuery alloc] init];
         query.service = SERVICE_NAME;
         query.account = key;
 
         if ([query deleteItem:&error]) {
-            [cachedStore removeObjectForKey:key];
+            if (key != nil) {
+                [self->cachedStore removeObjectForKey:key];
+            }
             [self successWithMessage:key :command.callbackId];
         } else {
+            // Keychain state is uncertain; resync lazily on the next getAll
+            self->cachedStore = nil;
             [self failWithMessage:@"Failure in SecureStorage.remove()" error:error callbackId:command.callbackId account:key];
         }
-
-        cachedStore = nil;
-        [self cacheStore];
-    }];
+    });
 }
 
 - (void)clear:(CDVInvokedUrlCommand*)command {
-    [self.commandDelegate runInBackground:^{
+    dispatch_async(storeQueue, ^{
         NSError *error;
         SAMKeychainQuery *query = [[SAMKeychainQuery alloc] init];
         query.service = SERVICE_NAME;
@@ -153,21 +181,21 @@ static NSString *SERVICE_NAME = @"thing-it Mobile";
             for (id dict in accounts) {
                 query.account = [dict valueForKeyPath:@"acct"];
                 if (![query deleteItem:&error]) {
+                    // Partially cleared; resync lazily on the next getAll
+                    self->cachedStore = nil;
                     [self failWithMessage:@"Failure in SecureStorage.clear()" error:error callbackId:command.callbackId account:query.account];
                     return;
                 }
             }
-            cachedStore = nil;
-            [self cacheStore];
+            self->cachedStore = [[NSMutableDictionary alloc] init];
             [self successWithMessage:nil :command.callbackId];
         } else if ([error code] == errSecItemNotFound) {
-            cachedStore = nil;
-            [self cacheStore];
+            self->cachedStore = [[NSMutableDictionary alloc] init];
             [self successWithMessage:nil :command.callbackId];
         } else {
             [self failWithMessage:@"Failure in SecureStorage.clear()" error:error callbackId:command.callbackId];
         }
-    }];
+    });
 }
 
 - (void)isDevicePasscodeSet:(CDVInvokedUrlCommand*)command {
